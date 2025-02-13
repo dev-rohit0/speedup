@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fast Math Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="flex justify-center items-center h-screen bg-gray-900 text-white p-4">
+
+    <div class="w-full max-w-4xl flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
+        <!-- Room Members -->
+        <div class="w-full md:w-1/4 bg-gray-800 p-4 rounded-lg">
+            <h2 class="text-xl font-bold">👥 Players</h2>
+            <ul id="room-members" class="mt-2 space-y-2"></ul>
+        </div>
+
+        <!-- Main Game Area -->
+        <div class="w-full md:w-1/2 bg-gray-700 p-6 rounded-lg text-center relative">
+            <h1 class="text-2xl font-bold">🧮 Fast Math Game</h1>
+
+            <div id="game-container" class="mt-6 hidden">
+                <p id="question" class="text-3xl font-semibold"></p>
+                <input type="number" id="answer-input" class="mt-4 p-2 text-xl text-black w-full text-center rounded focus:outline-none">
+            </div>
+
+            <div id="room-container" class="mt-6">
+                <input type="text" id="username" placeholder="Enter your name" class="p-2 text-black w-full rounded">
+                <button onclick="createRoom()" class="mt-2 w-full bg-blue-500 p-2 rounded">Create Room</button>
+                <input type="text" id="room-code" placeholder="Enter Room Code" class="mt-2 p-2 text-black w-full rounded">
+                <button onclick="joinRoom()" class="mt-2 w-full bg-green-500 p-2 rounded">Join Room</button>
+            </div>
+
+            <!-- Copy Notification -->
+            <p id="copy-notification" class="text-green-400 mt-2 hidden">Room Code Copied! ✅</p>
+        </div>
+
+        <!-- Leaderboard -->
+        <div class="w-full md:w-1/4 bg-gray-800 p-4 rounded-lg">
+            <h2 class="text-xl font-bold">🏆 Leaderboard</h2>
+            <ul id="leaderboard" class="mt-2 space-y-2"></ul>
+        </div>
+    </div>
+
+    <script>
+        let socket = new WebSocket("ws://localhost:3000");
+        let roomCode = null;
+        let username = null;
+
+        function createRoom() {
+            username = document.getElementById("username").value.trim();
+            if (!username) {
+                alert("Please enter a username!");
+                return;
+            }
+            socket.send(JSON.stringify({ type: "create-room", username }));
+        }
+
+        function joinRoom() {
+            username = document.getElementById("username").value.trim();
+            roomCode = document.getElementById("room-code").value.trim();
+            if (!username || !roomCode) {
+                alert("Enter both username and room code!");
+                return;
+            }
+            socket.send(JSON.stringify({ type: "join-room", username, roomCode }));
+        }
+
+        function startGame() {
+            socket.send(JSON.stringify({ type: "start-game", roomCode }));
+            document.getElementById("game-container").classList.remove("hidden");
+            document.getElementById("room-container").classList.add("hidden");
+            document.getElementById("answer-input").focus();
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                let notification = document.getElementById("copy-notification");
+                notification.classList.remove("hidden");
+                setTimeout(() => notification.classList.add("hidden"), 2000);
+            });
+        }
+
+        socket.onmessage = (event) => {
+            let data = JSON.parse(event.data);
+
+            if (data.type === "room-joined") {
+                roomCode = data.roomCode;
+                document.getElementById("room-container").innerHTML = `
+                    <p class="text-lg font-bold">Room Code: <span class="text-yellow-400">${roomCode}</span></p>
+                    <button onclick="startGame()" class="mt-4 w-full bg-red-500 p-2 rounded">Start Game</button>
+                `;
+                copyToClipboard(roomCode);
+            }
+
+            if (data.type === "player-joined" || data.type === "player-left") {
+                updateRoomMembers(data.players);
+                updateLeaderboard(data.players);
+            }
+
+            if (data.type === "new-question") {
+                document.getElementById("question").innerText = data.question;
+                document.getElementById("answer-input").value = "";
+                document.getElementById("answer-input").focus();
+            }
+
+            if (data.type === "correct-answer") {
+                updateLeaderboard(data.leaderboard);
+                document.getElementById("answer-input").value = "";
+            }
+
+            if (data.type === "error") {
+                alert(data.message);
+            }
+        };
+
+        function updateRoomMembers(players) {
+            let membersList = document.getElementById("room-members");
+            membersList.innerHTML = "";
+            players.forEach(player => {
+                membersList.innerHTML += `<li>${player.name}</li>`;
+            });
+        }
+
+        function updateLeaderboard(players) {
+            let leaderboard = document.getElementById("leaderboard");
+            leaderboard.innerHTML = "";
+            players.forEach(player => {
+                leaderboard.innerHTML += `<li>${player.name}: ${player.score} pts</li>`;
+            });
+        }
+
+        document.getElementById("answer-input").addEventListener("input", (event) => {
+            let answer = event.target.value.trim();
+            if (answer !== "") {
+                socket.send(JSON.stringify({ type: "answer", roomCode, username, answer }));
+            }
+        });
+
+        window.addEventListener("resize", () => {
+            let inputBox = document.getElementById("answer-input");
+            if (window.innerWidth <= 768) {
+                inputBox.scrollIntoView({ behavior: "smooth" });
+            }
+        });
+    </script>
+
+</body>
+</html>

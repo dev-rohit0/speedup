@@ -22,8 +22,8 @@ function sendNewQuestion(roomCode) {
     let operator = operators[Math.floor(Math.random() * operators.length)];
 
     do {
-        num1 = Math.floor(Math.random() * 10) + 1;
-        num2 = Math.floor(Math.random() * 10) + 1;
+        num1 = Math.floor(Math.random() * 1000) + 1;
+        num2 = Math.floor(Math.random() * 1000) + 1;
     } while (operator === "/" && num1 % num2 !== 0); // Ensure integer division
 
     switch (operator) {

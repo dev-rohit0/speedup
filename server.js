@@ -15,15 +15,36 @@ function sendToRoom(roomCode, data) {
     }
 }
 
-// Generate a math question with integer division handling
+// Generate a math question based on difficulty level
 function sendNewQuestion(roomCode) {
     let num1, num2, answer;
     let operators = ["+", "-", "*", "/"];
     let operator = operators[Math.floor(Math.random() * operators.length)];
 
+    const difficulty = rooms[roomCode].difficulty;
+    let min, max;
+
+    switch (difficulty) {
+        case "basic":
+            min = 1;
+            max = 9;
+            break;
+        case "medium":
+            min = 10;
+            max = 99;
+            break;
+        case "advanced":
+            min = 100;
+            max = 999;
+            break;
+        default:
+            min = 1;
+            max = 9;
+    }
+
     do {
-        num1 = Math.floor(Math.random() * 100) + 1;
-        num2 = Math.floor(Math.random() * 100) + 1;
+        num1 = Math.floor(Math.random() * (max - min + 1)) + min;
+        num2 = Math.floor(Math.random() * (max - min + 1)) + min;
     } while (operator === "/" && num1 % num2 !== 0); // Ensure integer division
 
     switch (operator) {
@@ -37,8 +58,18 @@ function sendNewQuestion(roomCode) {
     }
 
     rooms[roomCode].currentQuestion = { question: `${num1} ${operator} ${num2}`, answer };
+    rooms[roomCode].questionStartTime = Date.now(); // Record the start time of the question
 
+    // Send the new question to all players
     sendToRoom(roomCode, { type: "new-question", question: rooms[roomCode].currentQuestion.question });
+
+    // Start a 20-second timer for the question
+    rooms[roomCode].questionTimer = setTimeout(() => {
+        if (rooms[roomCode]) {
+            sendToRoom(roomCode, { type: "time-up" });
+            sendNewQuestion(roomCode); // Generate a new question
+        }
+    }, 20000);
 }
 
 // Generate a unique room code
@@ -62,12 +93,17 @@ server.on("connection", (socket) => {
 
         if (data.type === "create-room") {
             let roomCode = generateRoomCode();
-            rooms[roomCode] = { clients: [], scores: {}, currentQuestion: null };
+            rooms[roomCode] = { 
+                clients: [], 
+                scores: {}, 
+                currentQuestion: null, 
+                difficulty: data.difficulty || "basic" 
+            };
             rooms[roomCode].clients.push({ socket, username: data.username });
             rooms[roomCode].scores[data.username] = 0;
 
             socket.send(JSON.stringify({ type: "room-joined", roomCode }));
-            console.log(`Room ${roomCode} created by ${data.username}`);
+            console.log(`Room ${roomCode} created by ${data.username} with difficulty ${data.difficulty}`);
         
         } else if (data.type === "join-room") {
             let roomCode = data.roomCode;
@@ -81,7 +117,6 @@ server.on("connection", (socket) => {
             }
             rooms[roomCode].clients.push({ socket, username: data.username });
             rooms[roomCode].scores[data.username] = 0;
-
             socket.send(JSON.stringify({ type: "room-joined", roomCode }));
 
             sendToRoom(roomCode, { type: "player-joined", players: getLeaderboard(roomCode) });
@@ -106,16 +141,25 @@ server.on("connection", (socket) => {
             let currentQuestion = rooms[roomCode].currentQuestion;
 
             if (userAnswer === currentQuestion.answer) {
-                rooms[roomCode].scores[data.username] += 10;
+                const timeTaken = Date.now() - rooms[roomCode].questionStartTime;
+                const remainingTime = Math.max(0, 20000 - timeTaken); // 20 seconds timer
+                const points = Math.floor(remainingTime / 1000); // Points equal to remaining seconds
+
+                rooms[roomCode].scores[data.username] += points;
+
                 sendToRoom(roomCode, {
                     type: "correct-answer",
                     correctPlayer: data.username,
-                    leaderboard: getLeaderboard(roomCode)
+                    leaderboard: getLeaderboard(roomCode),
+                    points
                 });
+
+                // Clear the existing timer
+                clearTimeout(rooms[roomCode].questionTimer);
 
                 // Generate a new question after the correct answer
                 sendNewQuestion(roomCode);
-                console.log(`${data.username} answered correctly in Room ${roomCode}`);
+                console.log(`${data.username} answered correctly in Room ${roomCode} and earned ${points} points`);
             } else {
                 socket.send(JSON.stringify({ type: "incorrect-answer", message: "Wrong answer, try again!" }));
             }
@@ -147,6 +191,7 @@ server.on("connection", (socket) => {
 
                 // If the room is empty, delete it
                 if (room.clients.length === 0) {
+                    clearTimeout(room.questionTimer); // Clear the timer
                     delete rooms[roomCode];
                     console.log(`Room ${roomCode} is empty and removed.`);
                 }

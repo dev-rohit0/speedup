@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fast Math Game</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="flex justify-center items-center h-screen bg-gray-900 text-white p-4">
 
     <div class="w-full max-w-4xl flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
@@ -17,17 +19,25 @@
 
         <!-- Main Game Area -->
         <div class="w-full md:w-1/2 bg-gray-700 p-6 rounded-lg text-center relative">
-            <h1 class="text-2xl font-bold">🧮 Fast Math Game</h1>
+            <h1 class="text-2xl font-bold">Math Ninja<span class="text-3xl">🥷</span></h1>
 
             <div id="game-container" class="mt-6 hidden">
                 <p id="question" class="text-3xl font-semibold"></p>
-                <input type="number" id="answer-input" class="mt-4 p-2 text-xl text-black w-full text-center rounded focus:outline-none">
+                <input type="number" id="answer-input"
+                    class="mt-4 p-2 text-xl text-black w-full text-center rounded focus:outline-none">
+                <p id="timer" class="mt-2 text-xl font-bold">Time Left: 20s</p>
             </div>
 
             <div id="room-container" class="mt-6">
                 <input type="text" id="username" placeholder="Enter your name" class="p-2 text-black w-full rounded">
+                <select id="difficulty" class="mt-2 p-2 text-black w-full rounded">
+                    <option value="basic">Basic (1-digit numbers)</option>
+                    <option value="medium">Medium (2-digit numbers)</option>
+                    <option value="advanced">Advance (3-digit numbers)</option>
+                </select>
                 <button onclick="createRoom()" class="mt-2 w-full bg-blue-500 p-2 rounded">Create Room</button>
-                <input type="text" id="room-code" placeholder="Enter Room Code" class="mt-2 p-2 text-black w-full rounded">
+                <input type="text" id="room-code" placeholder="Enter Room Code"
+                    class="mt-2 p-2 text-black w-full rounded">
                 <button onclick="joinRoom()" class="mt-2 w-full bg-green-500 p-2 rounded">Join Room</button>
             </div>
 
@@ -46,6 +56,7 @@
         let socket = new WebSocket("wss://speedup-ba9w.onrender.com");
         let roomCode = null;
         let username = null;
+        let timerInterval = null;
 
         function createRoom() {
             username = document.getElementById("username").value.trim();
@@ -53,7 +64,8 @@
                 alert("Please enter a username!");
                 return;
             }
-            socket.send(JSON.stringify({ type: "create-room", username }));
+            const difficulty = document.getElementById("difficulty").value;
+            socket.send(JSON.stringify({ type: "create-room", username, difficulty }));
         }
 
         function joinRoom() {
@@ -72,7 +84,6 @@
             document.getElementById("room-container").classList.add("hidden");
             document.getElementById("answer-input").focus();
         }
-
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(() => {
                 let notification = document.getElementById("copy-notification");
@@ -81,15 +92,35 @@
             });
         }
 
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval); // Clear existing timer
+            let timeLeft = 20;
+            let timerElement = document.getElementById("timer");
+
+            timerElement.innerText = `Time Left: ${timeLeft}s`;
+
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                timerElement.innerText = `Time Left: ${timeLeft}s`;
+
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    timerElement.innerText = "Time's up!";
+                    timerInterval = null; // Prevent repeated clearing issues
+                }
+            }, 1000);
+        }
+
+
         socket.onmessage = (event) => {
             let data = JSON.parse(event.data);
 
             if (data.type === "room-joined") {
                 roomCode = data.roomCode;
                 document.getElementById("room-container").innerHTML = `
-                    <p class="text-lg font-bold">Room Code: <span class="text-yellow-400">${roomCode}</span></p>
-                    <button onclick="startGame()" class="mt-4 w-full bg-red-500 p-2 rounded">Start Game</button>
-                `;
+            <p class="text-lg font-bold">Room Code: <span class="text-yellow-400">${roomCode}</span></p>
+            <button onclick="startGame()" class="mt-4 w-full bg-red-500 p-2 rounded">Start Game</button>`
+                    ;
                 copyToClipboard(roomCode);
             }
 
@@ -102,17 +133,54 @@
                 document.getElementById("question").innerText = data.question;
                 document.getElementById("answer-input").value = "";
                 document.getElementById("answer-input").focus();
+
+                clearInterval(timerInterval); // Ensure any old timer stops
+                startTimer();
+            }
+
+            if (data.type === "time-up") {
+                if (!timerInterval) return; // Prevent duplicate "Time's up!"
+                clearInterval(timerInterval);
+                document.getElementById("timer").innerText = "Time's up!";
+                timerInterval = null;
             }
 
             if (data.type === "correct-answer") {
                 updateLeaderboard(data.leaderboard);
                 document.getElementById("answer-input").value = "";
+                clearInterval(timerInterval);
             }
+
+            // if (data.type === "time-up") {
+            //     document.getElementById("timer").innerText = "Time's up!";
+            //     document.getElementById("answer-input").value = "";
+            //     clearInterval(timerInterval);
+            // }
 
             if (data.type === "error") {
                 alert(data.message);
             }
         };
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval); // Clear any existing timer
+            let timeLeft = 20;
+            let timerElement = document.getElementById("timer");
+
+            timerElement.innerText = `Time Left: ${timeLeft}s`;
+
+            timerInterval = setInterval(() => {
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    timerElement.innerText = "Time's up!";
+                    timerInterval = null; // Prevent repeated execution
+                    return;
+                }
+                timeLeft--;
+                timerElement.innerText = `Time Left: ${timeLeft}s`;
+            }, 1000);
+        }
+
 
         function updateRoomMembers(players) {
             let membersList = document.getElementById("room-members");
@@ -146,4 +214,5 @@
     </script>
 
 </body>
+
 </html>
